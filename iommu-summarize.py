@@ -10,7 +10,9 @@ import json, os, statistics as st, sys
 
 D = "/opt/models/shared/npu/iommu-ab"
 COMBOS = [("moe", "rocm"), ("moe", "vulkan"), ("dense", "rocm"), ("dense", "vulkan"),
-          ("bigmoe", "rocm"), ("bigmoe", "vulkan")]
+          ("bigmoe", "rocm"), ("bigmoe", "vulkan"),
+          ("moeq8", "rocm"), ("moeq8", "vulkan"),
+          ("middense", "rocm"), ("middense", "vulkan")]
 
 def bench(arm, model, backend):
     p = f"{D}/{arm}.{model}.{backend}.json"

@@ -1,0 +1,6 @@
+arm=A4
+cmdline=BOOT_IMAGE=(hd1,gpt2)/vmlinuz-7.1.5-201.fc44.x86_64 root=/dev/mapper/fedora-root ro rd.lvm.lv=fedora/root rd.luks.uuid=[luks-uuid-redacted] rhgb quiet amdgpu.gttsize=126976 ttm.pages_limit=32505856 rd.neednet=1 ip=dhcp iommu=pt
+uptime_s=3992
+settle_s=600
+kernel=7.1.5-201.fc44.x86_64
+date=2026-09-11T10:30:01-04:00
