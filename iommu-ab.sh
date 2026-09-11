@@ -38,6 +38,7 @@ sample() {  # $1 = output file; samples until killed
 
 # --- models & backends -----------------------------------------------------
 MOE=/mnt/models/gguf/gemma-4-26b-qat/gemma-4-26B_q4_0-it.gguf
+BIGMOE=/mnt/models/gguf/gpt-oss-120b/gpt-oss-120b-mxfp4-00001-of-00003.gguf
 DENSE=/mnt/models/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4604b899a826000505a834e623272db5b7fd62f6/Qwen3.8-27B-Q8_0.gguf
 ROCM=/mnt/models/llamacpp-b1327
 VULKAN=/mnt/models/llamacpp-b10679-vulkan
@@ -75,6 +76,8 @@ run_combo moe   "$MOE"   rocm   "$ROCM"
 run_combo moe   "$MOE"   vulkan "$VULKAN"
 run_combo dense "$DENSE" rocm   "$ROCM"
 run_combo dense "$DENSE" vulkan "$VULKAN"
+run_combo bigmoe "$BIGMOE" rocm   "$ROCM"
+run_combo bigmoe "$BIGMOE" vulkan "$VULKAN"
 
 # --- metadata --------------------------------------------------------------
 {

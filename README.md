@@ -8,15 +8,21 @@ the power-budget mechanism offered for it does not hold on this machine.**
 
 ## TL;DR
 
-| model / backend | prefill @2048 | `iommu=pt` → `amd_iommu=off` | control (tg128) |
-|---|---|---|---|
-| **dense Qwen3.8-27B Q8_0 / Vulkan** | 257.9 → 324.6 t/s | **+25.9%** | +0.4% |
-| dense Qwen3.8-27B Q8_0 / ROCm | 336.6 → 357.8 t/s | **+6.3%** | −0.1% |
-| MoE gemma-4-26B-A4B q4_0 / Vulkan | 1319.0 → 1391.3 t/s | +5.5% | +2.0% |
-| MoE gemma-4-26B-A4B q4_0 / ROCm | 1326.7 → 1365.8 t/s | +3.0% | **+3.9%** |
+| model / backend | active | prefill @2048 | delta | control (tg128) |
+|---|---|---|---|---|
+| **dense Qwen3.8-27B Q8_0 / Vulkan** | 27B | 258.3 → 324.9 t/s | **+25.8%** | +0.5% |
+| dense Qwen3.8-27B Q8_0 / ROCm | 27B | 337.3 → 357.9 t/s | **+6.1%** | −0.1% |
+| MoE gpt-oss-120b mxfp4 / Vulkan † | ~5B | 626.0 → 675.1 t/s | +7.8% | +0.4% |
+| MoE gpt-oss-120b mxfp4 / ROCm † | ~5B | 628.3 → 644.0 t/s | +2.5% | +0.7% |
+| MoE gemma-4-26B-A4B q4_0 / Vulkan | 4B | 1319.8 → 1391.1 t/s | +5.4% | +2.3% |
+| MoE gemma-4-26B-A4B q4_0 / ROCm | 4B | 1327.3 → 1363.3 t/s | +2.7% | **+3.9%** |
 
-Boot-to-boot spread: **0.0–0.5% on 11 of 12 metrics** (one outlier at 1.9%, on a
-control). dense/Vulkan's own spread is 0.2%, so its effect is ~130× it.
+Three boots per arm on the first two models and the last two; † gpt-oss-120b is
+a **supplementary single boot per arm**, added later — see *Limits*.
+
+Boot-to-boot spread over three replicates: **≤0.8% on every prefill metric**
+(worst 0.8% on dense/ROCm), with one control metric at 2.0%. dense/Vulkan's own
+spread is 0.6%, so its effect is ~43× it.
 
 Three takeaways:
 
@@ -161,14 +167,37 @@ Power is pinned at 99–100 W in **both** arms — this machine hits a sustained
 power cap either way — and with the IOMMU **off** the shader clock is *lower*
 in all four combos, by up to 3.4%.
 
-You cannot get +26% throughput from −3.4% clocks. This reads as a data-path
-cost — DMA translation overhead on the memory path during prefill — rather than
-a thermal or power-budget one. That would also explain why the size of the win
-tracks how much memory traffic prefill generates, and why decode, with a very
-different access pattern, is untouched.
+You cannot get +26% throughput from −3.4% clocks. Whatever this is, it is not
+the SoC being handed back power budget.
+
+### What it does scale with — and what it doesn't
+
+My first hypothesis was that it is a data-path cost (DMA translation during
+prefill) scaling with memory traffic, using **total footprint** as the proxy.
+**gpt-oss-120b was added specifically to test that, and it refutes it:** at
+59 GiB it shows *less* effect (+7.8% Vulkan) than the 28 GiB dense model
+(+25.8%).
+
+Footprint is the wrong proxy, because an MoE does not read its whole footprint.
+**Active parameters determine per-forward traffic**, and against that the
+ordering is monotonic on both backends:
+
+| model | ~bytes read per forward | Vulkan | ROCm |
+|---|---|---|---|
+| dense Qwen3.8-27B Q8_0 | ~27 GB (all weights active) | **+25.8%** | +6.1% |
+| gpt-oss-120b mxfp4 (59 GiB on disk) | ~2.6 GB (~5B active) | +7.8% | +2.5% |
+| gemma-4-26B-A4B q4_0 (13 GiB on disk) | ~2.0 GB (4B active) | +5.4% | +2.7% |
+
+So the traffic idea survives only once traffic is measured as *active*
+parameters rather than model size. **State that as a hypothesis, not a
+mechanism.** It rests on three model points, and active traffic is confounded
+with density — every dense model reads all its weights by definition, so
+"dense vs MoE" fits this data exactly as well as "traffic" does. Separating
+them needs a dense model and an MoE at matched active-parameter counts, which
+I have not run.
 
 **The measurements I am confident about; the interpretation is my best reading
-of them.** Corrections welcome.
+of them.** One hypothesis has already died here — corrections welcome.
 
 ## A note on backend comparisons
 
@@ -207,6 +236,13 @@ both, this data cannot say.
   cross-backend levels are confounded. Within-backend A/B is not — see the
   backend note above.
 - **`-r 3`**, not llama-bench's default of 5.
+- **gpt-oss-120b has one boot per arm, not three.** It was added after the main
+  four-boot design had already pinned boot-to-boot spread at ≤0.8%, and it is
+  reported as a supplement resting on that. Its two numbers should be read as
+  weaker evidence than the rest.
+- **"Active parameters" above are nominal**, taken from each model's
+  architecture rather than measured from memory counters. The ordering is what
+  matters, not the absolute byte figures.
 - **Power/clock medians for the MoE rest on ~40 busy samples** (its runs are
   short); the dense combos have 176–215. The MoE power figures are the
   thinnest numbers here.

@@ -9,7 +9,8 @@ floor and the thing the first uncontrolled attempt could not estimate.
 import json, os, statistics as st, sys
 
 D = "/opt/models/shared/npu/iommu-ab"
-COMBOS = [("moe", "rocm"), ("moe", "vulkan"), ("dense", "rocm"), ("dense", "vulkan")]
+COMBOS = [("moe", "rocm"), ("moe", "vulkan"), ("dense", "rocm"), ("dense", "vulkan"),
+          ("bigmoe", "rocm"), ("bigmoe", "vulkan")]
 
 def bench(arm, model, backend):
     p = f"{D}/{arm}.{model}.{backend}.json"
