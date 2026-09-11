@@ -1,20 +1,21 @@
 # `amd_iommu=off` on Strix Halo: most of the "ROCm beats Vulkan at prefill" gap is the IOMMU
 
 A controlled measurement of the `amd_iommu=off` kernel parameter on AMD Strix
-Halo (gfx1151) — eight boots, five models, both backends, with raw data.
+Halo (gfx1151) — ten boots, five models, both backends, with raw data.
 
 ## TL;DR
 
 **Turning the IOMMU off recovers up to +32% of Vulkan prefill, and largely
-closes the prefill gap between Vulkan and ROCm.**
+closes the prefill gap between Vulkan and ROCm.** Measured over ten boots.
+Worst boot-to-boot spread on any prefill metric: 2.0%.
 
 | model | active | GB/fwd | Vulkan/ROCm @ `iommu=pt` | @ `amd_iommu=off` |
 |---|---|---|---|---|
 | gemma-4-26B-A4B q4_0 | 4B | 2.0 | 0.99 | 1.02 |
 | gpt-oss-120b mxfp4 | ~5B | 2.6 | 0.99 | 1.05 |
-| gemma-4-26B-A4B **Q8_0** | 4B | 4.0 | 0.86 | 0.99 |
-| muse-glimmer-30B Q4_K_M *(dense)* | 27.9B | 14.0 | **0.71** | **0.90** |
-| Qwen3.8-27B Q8_0 *(dense)* | 27B | 27.0 | 0.77 | 0.91 |
+| gemma-4-26B-A4B **Q8_0** | 4B | 4.0 | 0.86 | 1.00 |
+| muse-glimmer-30B Q4_K_M *(dense)* | 27.9B | 14.0 | **0.71** | **0.91** |
+| Qwen3.8-27B Q8_0 *(dense)* | 27B | 27.0 | 0.76 | 0.91 |
 
 With the IOMMU enabled, Vulkan runs up to **29% behind** ROCm on prompt
 processing. With it off, the two are within about 10% at worst and at parity on
@@ -23,23 +24,23 @@ artifact rather than a backend property.**
 
 The prefill gains themselves, by model and backend:
 
-| model | GB/fwd | Vulkan | ROCm |
-|---|---|---|---|
-| gemma-4-26B-A4B q4_0 | 2.0 | +5.5% | +2.6% |
-| gpt-oss-120b mxfp4 | 2.6 | +8.1% | +2.2% |
-| gemma-4-26B-A4B Q8_0 | 4.0 | **+19.9%** | +3.8% |
-| muse-glimmer-30B Q4_K_M | 14.0 | **+32.5%** | +4.0% |
-| Qwen3.8-27B Q8_0 | 27.0 | +25.7% | +6.1% |
+| model | GB/fwd | Vulkan | ROCm | boots/arm |
+|---|---|---|---|---|
+| gemma-4-26B-A4B q4_0 | 2.0 | +5.4% | +2.6% | 5 |
+| gpt-oss-120b mxfp4 | 2.6 | +8.0% | +1.8% | 3 |
+| gemma-4-26B-A4B Q8_0 | 4.0 | **+20.0%** | +3.2% | 2 |
+| muse-glimmer-30B Q4_K_M | 14.0 | **+31.6%** | +3.7% | 2 |
+| Qwen3.8-27B Q8_0 | 27.0 | +26.2% | +6.0% | 5 |
 
 **Decode is unaffected** — within ±1% on nine of ten combos.
 
 **It is not a power or clock effect.** Package power is pinned at 99–100 W in
 both arms and shader clocks are *lower* with the IOMMU off.
 
-**It is not an architecture effect.** The same MoE at Q8 gains +19.9% where it
-gains +5.5% at q4 — same model family, same 4B active parameters, only
+**It is not an architecture effect.** The same MoE at Q8 gains +20.0% where it
+gains +5.4% at q4 — same model family, same 4B active parameters, only
 bytes-per-weight differs. On ROCm the effect rises monotonically with
-active-parameter traffic (2.2 → 2.6 → 3.8 → 4.0 → 6.1%); on Vulkan it rises
+active-parameter traffic (1.8 → 2.6 → 3.2 → 3.7 → 6.0%); on Vulkan it rises
 too but peaks at the 14 GB model rather than the 27 GB one.
 
 ## Why
@@ -73,10 +74,15 @@ Fedora Server 44, kernel 7.1.5.
 **Constant in both arms:** `amdgpu.gttsize=126976 ttm.pages_limit=32505856`.
 The only variable is `iommu=pt` ↔ `amd_iommu=off`.
 
-**A/B/A/B across eight boots**, four replicates per arm, interleaved. Replicates
-are the point: they measure **boot-to-boot variance**, without which a 3% effect
-cannot be distinguished from drift. It came out at **≤0.9%** on every prefill
-metric.
+**A/B/A/B across ten boots**, interleaved, with up to five replicates per arm.
+Replicates are the point: they measure **boot-to-boot variance**, without which
+a 3% effect cannot be distinguished from drift. It came out at **≤2.0%** on
+every prefill metric.
+
+**The noise estimate got worse as replicates accumulated** — 0.2% at two boots
+per arm, 0.8% at three, 2.0% at five. That is the ordinary behaviour of a range
+statistic on small samples, and it is a reason to distrust any noise floor
+quoted from two runs, including the earlier revisions of this document.
 
 Identical protocol every arm:
 
@@ -185,21 +191,21 @@ the SoC being handed back power budget.
 
 Three hypotheses were on the table. Two are dead.
 
-**Total footprint — dead.** gpt-oss-120b at 59 GiB shows +8.1% (Vulkan) where
-the 28 GiB dense model shows +25.7%. An MoE does not read its whole footprint.
+**Total footprint — dead.** gpt-oss-120b at 59 GiB shows +8.0% (Vulkan) where
+the 28 GiB dense model shows +26.2%. An MoE does not read its whole footprint.
 
 **Architecture — dead.** The decisive pair is the two gemmas: identical
 architecture, identical 4B active parameters, differing only in quantization.
-At q4 it gains **+5.5%**; at Q8 it gains **+19.9%**. Architecture cannot
-explain a 3.6× difference between two builds of the same model.
+At q4 it gains **+5.4%**; at Q8 it gains **+20.0%**. Architecture cannot
+explain a 3.7× difference between two builds of the same model.
 
 **Active-parameter traffic — survives, cleanly on ROCm.** Bytes actually read
 per forward pass orders the ROCm results monotonically:
 
 | GB/fwd | 2.0 | 2.6 | 4.0 | 14.0 | 27.0 |
 |---|---|---|---|---|---|
-| ROCm | +2.6% | +2.2% | +3.8% | +4.0% | **+6.1%** |
-| Vulkan | +5.5% | +8.1% | +19.9% | **+32.5%** | +25.7% |
+| ROCm | +2.6% | +1.8% | +3.2% | +3.7% | **+6.0%** |
+| Vulkan | +5.4% | +8.0% | +20.0% | **+31.6%** | +26.2% |
 
 Vulkan rises with traffic too, but peaks at 14 GB rather than 27 GB, so the
 relationship there is not simply monotonic. I do not have an explanation for
@@ -216,9 +222,9 @@ This is the part with the widest consequences.
 |---|---|---|
 | gemma-4-26B-A4B q4_0 | 0.99 | 1.02 |
 | gpt-oss-120b mxfp4 | 0.99 | 1.05 |
-| gemma-4-26B-A4B Q8_0 | 0.86 | 0.99 |
-| muse-glimmer-30B Q4_K_M | **0.71** | **0.90** |
-| Qwen3.8-27B Q8_0 | 0.77 | 0.91 |
+| gemma-4-26B-A4B Q8_0 | 0.86 | 1.00 |
+| muse-glimmer-30B Q4_K_M | **0.71** | **0.91** |
+| Qwen3.8-27B Q8_0 | 0.76 | 0.91 |
 
 With the IOMMU enabled, Vulkan gives up as much as 29% of ROCm's prefill. With
 it off, that collapses to about 10% at worst and parity on the MoEs. The size
@@ -256,12 +262,12 @@ the one build that has both has a known-corrupt ROCm path on gfx1151.
   cross-backend levels are confounded. Within-backend A/B is not — see the
   backend note above.
 - **`-r 3`**, not llama-bench's default of 5.
-- **Replicate counts differ by model.** The first two models have four boots
-  per arm; gpt-oss-120b has two; gemma-Q8 and muse-glimmer have one each, since
-  they were added last. The later models rest on the boot-to-boot spread the
-  earlier design established (≤0.9%). Read them as progressively weaker
+- **Replicate counts differ by model.** The first two models have five boots
+  per arm; gpt-oss-120b has three; gemma-Q8 and muse-glimmer have two each,
+  since they were added later. The later models rest on the boot-to-boot spread the
+  earlier design established (≤2.0%). Read them as progressively weaker
   evidence, and the two-gemma comparison — the one that kills the architecture
-  hypothesis — as resting on a single boot per arm for the Q8 half.
+  hypothesis — as resting on a two boots per arm for the Q8 half.
 - **One arm (A4) ran at 3992 s uptime** against ~1100–1400 s for the others. It
   reproduces the earlier arms within 0.2–0.9% on every shared combo, which is
   the built-in check that the difference did not matter.
