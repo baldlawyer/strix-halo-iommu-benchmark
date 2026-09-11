@@ -15,7 +15,8 @@ the power-budget mechanism offered for it does not hold on this machine.**
 | MoE gemma-4-26B-A4B q4_0 / Vulkan | 1319.0 → 1391.3 t/s | +5.5% | +2.0% |
 | MoE gemma-4-26B-A4B q4_0 / ROCm | 1326.7 → 1365.8 t/s | +3.0% | **+3.9%** |
 
-Boot-to-boot noise floor: **0.0–0.5%**. The dense/Vulkan result is ~130× that.
+Boot-to-boot spread: **0.0–0.5% on 11 of 12 metrics** (one outlier at 1.9%, on a
+control). dense/Vulkan's own spread is 0.2%, so its effect is ~130× it.
 
 Three takeaways:
 
@@ -32,9 +33,21 @@ Three takeaways:
 
 ## Why
 
-Two sources report `amd_iommu=off` being worth 13–16% of prefill on this
-silicon, one with an explicit mechanism: the IOMMU costs power budget, so the
-SoC draws more watts at lower clocks, and compute-bound prefill suffers.
+**The two published measurements of this setting disagree with each other**,
+and that turns out to be the interesting part.
+
+- **halogen-flash-server** reports **13–16%** of prefill, with an explicit
+  mechanism: the IOMMU costs power budget, so the SoC draws more watts at lower
+  clocks and compute-bound prefill suffers. Their figure is "prefill fell from
+  460 to 385 tok/s at 2,048 tokens." They do not state which model that was
+  measured on.
+- **Nathanw1014/strix-halo-llamacpp** measured it independently — 10 arms, same
+  build — and got **+1.0% to +7.3% prefill**, "larger on the 35B MoE than on
+  Coder-30B," with decode within noise at −2.4% to +3.9%. Their models are
+  MoE/small-dense benched at pp512 in the 1,125–1,350 t/s range.
+
+A ten-point spread between two careful groups. This measurement suggests both
+are right, within their own regime.
 
 A first attempt to reproduce it returned an ambiguous ~6% from a badly
 controlled test — one model, one backend, and a before/after where "before" had
@@ -74,6 +87,21 @@ Both on both backends. `llama-bench -p 2048,8192 -n 128 -r 3`, ROCm build
 `tg128` is the **control**: bandwidth-bound, so a prefill-specific effect should
 leave it alone.
 
+**Arms were interleaved A→B→A→B**, not blocked, so monotonic drift over the
+session cannot masquerade as an effect. Each arm's recorded `/proc/cmdline` is
+in its `.meta`, and the harness refuses to measure if the running cmdline does
+not match the arm it was told to run.
+
+**The two models differ in more than density.** The dense model is Q8_0 and the
+MoE is q4_0, so "regime" here bundles density, quantization and active
+parameter count. They are endpoints chosen to bracket prefill throughput, not a
+controlled model comparison, and I would not attribute the difference to any
+single one of those properties.
+
+**Other services were running** (an image-processing daemon at ~12 GB RSS, two
+transcription servers) but identically in every arm, so they cancel in the A/B.
+Only the inference server was stopped, because it holds GPU memory.
+
 ## Noise floor
 
 Same arm, different boots:
@@ -112,7 +140,15 @@ general few-percent lift, not a prefill effect. Reported as such.
 ## The mechanism does not hold up
 
 Package power and median shader clock, sampled at 1 Hz, filtered to samples
-where the GPU is >50% busy:
+where the GPU is >50% busy.
+
+These come from the `amdgpu` hwmon, and the driver labels them itself — no
+inference required, and you can check it in one command:
+
+```
+$ cat /sys/class/hwmon/hwmon*/power1_label   # -> PPT   (package power tracking)
+$ cat /sys/class/hwmon/hwmon*/freq1_label    # -> sclk  (shader clock)
+```
 
 | combo | pkg W (pt) | pkg W (off) | MHz (pt) | MHz (off) |
 |---|---|---|---|---|
@@ -139,10 +175,21 @@ of them.** Corrections welcome.
 At `iommu=pt`, dense prefill on Vulkan (258 t/s) trails ROCm (337 t/s). With the
 IOMMU off, Vulkan (325) nearly closes on ROCm (358).
 
-**The IOMMU penalty falls disproportionately on RADV's prefill path.** If you
-have benchmarked ROCm vs Vulkan prefill on this hardware, it is worth
-re-checking with `amd_iommu=off` — some of that gap may be the IOMMU rather than
-the backend.
+**The IOMMU penalty falls disproportionately on the Vulkan path** — +25.9% vs
++6.3% on the same model. That *delta* comparison is clean: each backend was
+measured against itself with its build held constant across both arms.
+
+**The absolute levels are not clean, and I want to be explicit about it.** The
+two backends ran different llama.cpp builds — ROCm `52d4268` (llamacpp-rocm
+b1327) and Vulkan `50f068fff` (b10679) — so "Vulkan 258 vs ROCm 337" conflates
+backend with build version and should not be read as a backend comparison.
+What survives that confound is the *size of the IOMMU effect within each
+backend*, because the build is constant inside each A/B.
+
+So: if you have benchmarked ROCm vs Vulkan prefill on this hardware, it is
+worth re-checking with `amd_iommu=off`, because the two backends do not lose
+the same amount to it. Whether the residual gap is the backend, the build, or
+both, this data cannot say.
 
 ## Limits
 
@@ -156,6 +203,18 @@ the backend.
   machine-wide. Reasonable on a dedicated inference box; think about it on a
   workstation.
 - I did not investigate why clocks drop slightly with the IOMMU off.
+- **The two backends ran different llama.cpp builds**, so absolute
+  cross-backend levels are confounded. Within-backend A/B is not — see the
+  backend note above.
+- **`-r 3`**, not llama-bench's default of 5.
+- **Power/clock medians for the MoE rest on ~40 busy samples** (its runs are
+  short); the dense combos have 176–215. The MoE power figures are the
+  thinnest numbers here.
+- The `.meta` files show B2 ran at a longer post-boot uptime than the other
+  three (1466 s vs ~1120–1160). Settle was a fixed 600 s in all four, so this
+  only means more idle before the harness attached. B1 and B2 agree to
+  **0.06%** regardless, which is itself evidence that pre-measurement idle time
+  does not matter at this scale.
 
 **If you run this on your box, please open an issue or reply with your numbers.**
 n=1 is the main weakness here and replication is the only fix.
