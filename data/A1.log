@@ -1,0 +1,6 @@
+=== arm=A1  settling 600s (lemonade stopped) ...
+--- moe.rocm
+--- moe.vulkan
+--- dense.rocm
+--- dense.vulkan
+=== arm=A1 done -> /opt/models/shared/npu/iommu-ab/A1.*
