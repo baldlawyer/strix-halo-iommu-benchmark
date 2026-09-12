@@ -246,6 +246,16 @@ build differences, backend differences, or both.
 I could not eliminate this: the b1327 ROCm build ships no Vulkan backend, and
 the one build that has both has a known-corrupt ROCm path on gfx1151.
 
+## A caveat on durability
+
+llama.cpp regressions on gfx1151 are frequent and can sit unresolved for weeks
+on both the HIP and Vulkan paths, because the project does not specifically
+target this arch. **Treat every number here as point-in-time**, tied to the two
+builds named above, and re-measure rather than assuming it still holds on a
+newer build. (Raised by randomfoo2 in the r/StrixHalo thread; it matches what
+this repo's own history shows — one of the two builds used here was chosen
+specifically because an earlier one silently produced wrong output on gfx1151.)
+
 ## Limits
 
 - **One machine.** n=1 on hardware, however many boots.
@@ -283,7 +293,15 @@ the one build that has both has a known-corrupt ROCm path on gfx1151.
   **0.06%** regardless, which is itself evidence that pre-measurement idle time
   does not matter at this scale.
 
-**If you run this on your box, please open an issue or reply with your numbers.**
+**Before you try: if you use the NPU or VM passthrough, you can't run this**,
+because `amd_iommu=off` disables both — see *Limits*. On Strix Halo that rules
+out a fair number of people, and it is the main reason not to bother.
+
+**If that doesn't apply to you and you do run it, please open an issue or reply
+with your numbers.** Note also that the ROCm and Vulkan columns are very
+different results: if your llama.cpp build has no Vulkan backend, the rows that
+apply to you are the ROCm ones (+1.8% to +6.0%), which are unlikely to change
+any decision. The large numbers are all on the Vulkan path.
 n=1 is the main weakness here and replication is the only fix.
 
 ## Reproducing
