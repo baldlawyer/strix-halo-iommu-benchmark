@@ -43,6 +43,23 @@ bytes-per-weight differs. On ROCm the effect rises monotonically with
 active-parameter traffic (1.8 → 2.6 → 3.2 → 3.7 → 6.0%); on Vulkan it rises
 too but peaks at the 14 GB model rather than the 27 GB one.
 
+## Should you do this?
+
+Mostly this is not a performance question at all — it is a capability question,
+and the answer is usually settled before performance enters it:
+
+1. **Do you use the XDNA2 NPU (FastFlowLM) or VM device passthrough?**
+   Then `amd_iommu=off` is not available to you. It disables both. Stop here.
+2. **Otherwise, turn it off** — but how much you gain depends enormously on what
+   you run. On a build with no Vulkan backend, expect **+1.8% to +6.0%**, which
+   is unlikely to change any decision. On the Vulkan path with a dense model or
+   a higher-precision quant, it is **+20% to +32%**.
+
+That framing is [randomfoo2's](https://www.reddit.com/r/StrixHalo/), from the
+thread this repo came out of, and it is the right way round. What this data adds
+is the second half: the magnitude is not a constant, and picking a model without
+checking which column applies to you will mislead you by an order of magnitude.
+
 ## Why
 
 **The two published measurements of this setting disagree with each other**,
